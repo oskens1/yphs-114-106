@@ -11,7 +11,6 @@ function doGet(e) {
   const action = e.parameter.action;
   const callback = e.parameter.callback;
 
-  // JSONP 處理邏輯
   if (callback) {
     let res;
     if (action === 'login') {
@@ -20,6 +19,15 @@ function doGet(e) {
       res = getStudentLogs(e.parameter.seat);
     } else if (action === 'getAuctions') {
       res = getActiveAuctions();
+    } else if (action === 'submitBid') {
+      // 將出價也改為 GET 支援 JSONP
+      res = submitBid(
+        e.parameter.seat, 
+        e.parameter.name, 
+        e.parameter.auctionId, 
+        e.parameter.auctionName, 
+        e.parameter.bidPrice
+      );
     }
     
     if (res !== undefined) {
@@ -28,7 +36,6 @@ function doGet(e) {
     }
   }
 
-  // 預設行為：返回 HTML 介面 (用於 Google 內部訪問)
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('班級積分銀行')
@@ -138,6 +145,58 @@ function getActiveAuctions() {
       deadline: formatDate(row[4])
     };
   });
+}
+
+// 學生端：出價
+function submitBid(seat, name, auctionId, auctionName, bidPrice) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(5000); 
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const auctionSheet = ss.getSheetByName(SHEET_AUCTIONS);
+    const studentSheet = ss.getSheetByName(SHEET_STUDENT);
+    const bidSheet = ss.getSheetByName(SHEET_BIDS);
+
+    const auctions = auctionSheet.getDataRange().getValues();
+    let targetRowIndex = -1;
+    let targetCurrentMax = 0;
+    let lockedScore = 0;
+
+    for(let i=1; i<auctions.length; i++){
+      const rowId = String(auctions[i][0]);
+      const rowStatus = auctions[i][5];
+      const rowPrice = Number(auctions[i][6] || auctions[i][3]);
+      const rowLeader = String(auctions[i][7]);
+      if(rowId === String(auctionId)){
+        targetRowIndex = i + 1;
+        targetCurrentMax = rowPrice;
+      }
+      if(rowStatus === "進行中" && rowLeader === String(name) && rowId !== String(auctionId)) {
+        lockedScore += rowPrice;
+      }
+    }
+    if(targetRowIndex === -1) return {success: false, message: "找不到商品"};
+    if (Number(bidPrice) <= Number(targetCurrentMax)) return {success: false, message: `出價太慢！目前已達 ${targetCurrentMax}`};
+
+    const students = studentSheet.getDataRange().getValues();
+    let totalScore = 0;
+    for(let i=1; i<students.length; i++){
+      if(String(students[i][1]) === String(seat)){
+         totalScore = Number(students[i][4]);
+         break;
+      }
+    }
+    if (Number(bidPrice) > (totalScore - lockedScore)) return {success: false, message: "積分不足 (含凍結)"};
+
+    auctionSheet.getRange(targetRowIndex, 7).setValue(bidPrice);
+    auctionSheet.getRange(targetRowIndex, 8).setValue(name); 
+    bidSheet.appendRow([new Date(), auctionId, auctionName, seat, name, bidPrice]);
+    return {success: true, message: "🎉 出價成功！"};
+  } catch (e) {
+    return { success: false, message: "系統錯誤: " + e.message };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function formatDate(dateObj) {
