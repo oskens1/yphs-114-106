@@ -24,7 +24,15 @@
 5. **使用者介面與環境**：
    - 建立了 `一鍵啟動積分系統.bat` (已修復 UTF-8 亂碼與環境路徑)。
    - 打包了具備圖示的 `106積分銀行一鍵發分.exe` (位於 `dist/`)。
-   - 環境建議：使用 **`omr_mini`** 虛擬環境運作。
+   - **Vercel 雲端入口**: https://yphs-114-106.vercel.app/ (學生端唯一入口)。
+   - **手機端優化**: 已加入 viewport meta 標籤，確保行動裝置瀏覽舒適度。
+
+6. **自動化開發流程 (Clasp + GitHub Integration)**：
+   - **GAS 自動同步**: 已設定 Clasp 工具。Cline 可直接在終端機執行 `clasp push` 修改雲端 Code，使用者僅需負責在 GAS 頁面按「部署」。
+   - **Vercel 自動同步**: 前端 `index.html` 修改後，執行 `git push` 即自動發布至 Vercel。
+   - **跨網域解決方案**: 全面採用 **JSONP** 模式，繞過 Google 的 iframe 安全限制與 CORS 問題。
+>>>>+++ REPLACE
+
 
 ## 待接續工作 / 測試
 - [ ] **歷史資料測試**：建議回家後用桌機執行 `.bat`，選 `n` (不抓資料) -> `y` (手動區間) -> 輸入 `114-12-21`，核對預覽名單後按 `y` 測試雲端同步。
@@ -33,7 +41,16 @@
 ## 開發者提示
 - **Python 環境**：需安裝 `DrissionPage`, `pandas`, `requests`, `openpyxl`。
 - **Web App URL**：已填入 `main.py` 第 10 行，無須更動。
-- **GAS 推播**：若需改動雲端 Code，於 `gas/` 目錄執行 `clasp push -f`。
+- **Vercel 入口**：https://yphs-114-106.vercel.app/ (由 GitHub 倉庫自動部署)。
+- **GAS 推播 (Clasp)**：
+   1. 確保已安裝 Node.js 並執行 `npm install -g @google/clasp`。
+   2. 執行 `clasp login` 完成 Google 帳號授權。
+   3. 修改本地 `real-code.txt` 或 `gas/code.gs` 後，執行 `clasp push`。
+   4. **重要**：push 完後需進入 GAS 後端執行「管理部署 > 新增版本」才算正式生效。
+- **跨網域通訊 (CORS)**：
+   由於網頁改在 Vercel，原本的 `google.script.run` 失效，已全面改用 **JSONP** 呼叫方式。修改代碼時請確保 GAS 端能處理 `action` 與 `callback` 參數。
+>>>>+++ REPLACE
+
 
 ---
 * Cline AI 代理人 敬上
