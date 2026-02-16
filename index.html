@@ -73,6 +73,7 @@
 
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbyM4ys5HiOSdgZjxbb2Oj_ScBR_hU2yCRpQfryoDsNvyRTx2pzNmvEe8tMvLr9XfEGZrQ/exec";
+  let currentUser = {};
 
   function doLogin() {
     const seat = document.getElementById('login-seat').value;
@@ -80,11 +81,14 @@
     if(!seat || !pwd) { alert("請輸入完整資訊"); return; }
     
     showLoading(true);
-    const url = `${GAS_URL}?action=login&seat=${seat}&pwd=${pwd}`;
+    const url = `${GAS_URL}?action=login&seat=${seat}&pwd=${pwd}&callback=loginCallback`;
     
-    // 使用 JSONP 繞過 CORS
     const script = document.createElement('script');
-    script.src = `${url}&callback=loginCallback`;
+    script.src = url;
+    script.onerror = function() {
+      showLoading(false);
+      alert("連線失敗，請確認 Google Apps Script 已經正確部署且網址正確。");
+    };
     document.body.appendChild(script);
   }
 
@@ -92,6 +96,7 @@
     showLoading(false);
     if(res.success) {
       currentUser = res;
+      currentUser.seat = document.getElementById('login-seat').value;
       document.getElementById('login-page').style.display = 'none';
       document.getElementById('main-page').style.display = 'block';
       document.getElementById('user-name').innerText = res.name;
