@@ -8,12 +8,30 @@ const SHEET_ADMIN = "Admin";
 const SHEET_BIDS = "BidLogs";
 
 function doGet(e) {
+  const action = e.parameter.action;
+  const callback = e.parameter.callback;
+
+  if (action === 'login') {
+    const res = studentLogin(e.parameter.seat, e.parameter.pwd);
+    return ContentService.createTextOutput(callback + '(' + JSON.stringify(res) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  
+  if (action === 'getLogs') {
+    const res = getStudentLogs(e.parameter.seat);
+    return ContentService.createTextOutput(callback + '(' + JSON.stringify(res) + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  // 預設行為：返回 HTML 介面 (用於 Google 內部訪問)
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
     .setTitle('班級積分銀行')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
+>>>>+++ REPLACE
+
 
 // 老師端：批次加分 (維持不變)
 function processBulkAdd() {

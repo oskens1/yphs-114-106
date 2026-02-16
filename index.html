@@ -50,42 +50,79 @@
         <button onclick="logout()" class="btn btn-sm btn-outline-light mt-2">登出</button>
       </div>
     </div>
-
     <ul class="nav nav-pills nav-fill mb-3">
       <li class="nav-item"><button class="nav-link active" onclick="switchTab('logs')">📜 加扣紀錄</button></li>
       <li class="nav-item"><button class="nav-link" onclick="switchTab('auction')">🎁 競標會場</button></li>
       <li class="nav-item"><button class="nav-link" onclick="switchTab('rules')">ℹ️ 使用說明</button></li>
     </ul>
-
     <div id="tab-logs">
       <div class="list-group" id="logs-list"></div>
     </div>
-
     <div id="tab-auction" style="display: none;">
       <div class="d-flex justify-content-end mb-2">
         <button class="btn btn-sm btn-outline-secondary">🔄 刷新價格</button>
       </div>
       <div class="row g-3" id="auction-list"></div>
     </div>
-
     <div id="tab-rules" style="display: none;">
-      <div class="rule-box">
-        <div class="rule-title">💰 積分怎麼來？</div>
-        <p class="text-muted small mt-2 mb-0">老師會根據大家的表現進行加扣分。</p>
-      </div>
-      <div class="rule-box">
-        <div class="rule-title">🔨 競標規則</div>
-        <p class="text-muted small mt-2 mb-0">採公開出價，一旦出價不可撤銷。</p>
-      </div>
+      <div class="rule-box"><div class="rule-title">💰 積分怎麼來？</div><p class="text-muted small mt-2 mb-0">老師會根據大家的表現進行加扣分。</p></div>
       <div class="text-center text-muted small mt-4">© 2025 班級積分銀行系統</div>
     </div>
   </div>
 </div>
 
 <script>
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyM4ys5HiOSdgZjxbb2Oj_ScBR_hU2yCRpQfryoDsNvyRTx2pzNmvEe8tMvLr9XfEGZrQ/exec";
+
   function doLogin() {
-    alert("提醒：由於 Google Apps Script 的安全限制，純前端網頁（如 Vercel）無法直接與 GAS 後端溝通。\n\n請直接使用老師提供的 Google 連結（Web App URL）來使用完整功能。此 Vercel 頁面僅供展示用途。");
+    const seat = document.getElementById('login-seat').value;
+    const pwd = document.getElementById('login-pwd').value;
+    if(!seat || !pwd) { alert("請輸入完整資訊"); return; }
+    
+    showLoading(true);
+    const url = `${GAS_URL}?action=login&seat=${seat}&pwd=${pwd}`;
+    
+    // 使用 JSONP 繞過 CORS
+    const script = document.createElement('script');
+    script.src = `${url}&callback=loginCallback`;
+    document.body.appendChild(script);
   }
+
+  function loginCallback(res) {
+    showLoading(false);
+    if(res.success) {
+      currentUser = res;
+      document.getElementById('login-page').style.display = 'none';
+      document.getElementById('main-page').style.display = 'block';
+      document.getElementById('user-name').innerText = res.name;
+      document.getElementById('user-score').innerText = res.score;
+      loadLogs();
+    } else {
+      alert(res.message);
+    }
+  }
+
+  function loadLogs() {
+    showLoading(true);
+    const url = `${GAS_URL}?action=getLogs&seat=${currentUser.seat}&callback=logsCallback`;
+    const script = document.createElement('script');
+    script.src = url;
+    document.body.appendChild(script);
+  }
+
+  function logsCallback(logs) {
+    showLoading(false);
+    const list = document.getElementById('logs-list');
+    list.innerHTML = logs.length ? "" : "<div class='text-center text-muted mt-3'>無紀錄</div>";
+    logs.forEach(log => {
+      const color = log.score > 0 ? 'text-success' : 'text-danger';
+      list.innerHTML += `<div class="list-group-item d-flex justify-content-between align-items-center">
+        <div><small class="text-muted">${log.time}</small><br><strong>${log.reason}</strong></div>
+        <span class="fs-5 fw-bold ${color}">${log.score > 0 ? '+' : ''}${log.score}</span>
+      </div>`;
+    });
+  }
+
   function logout() { location.reload(); }
   function switchTab(tab) {
     document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
@@ -96,6 +133,7 @@
     else if(tab === 'auction') document.getElementById('tab-auction').style.display = 'block';
     else if(tab === 'rules') document.getElementById('tab-rules').style.display = 'block';
   }
+  function showLoading(show) { document.getElementById('loading').style.display = show ? 'flex' : 'none'; }
 </script>
 </body>
 </html>
