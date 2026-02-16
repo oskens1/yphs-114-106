@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    
+    /* 座位按鈕 */
+    .seat-button {
+      width: 58px; height: 58px; font-size: 12px;
+      @media (max-width: 370px) { width: 50px; height: 50px; font-size: 10px; }
+      @media (min-width: 640px) { width: 64px; height: 64px; font-size: 12px; }
+      
+      display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;
+      border-radius: 8px; 
+      @media (min-width: 640px) { border-radius: 12px; }
+      
+      cursor: pointer; transition: all 0.1s ease; font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .seat-button:active { transform: scale(0.92); } 
+    .seat-button:hover { 
+      @media (min-width: 640px) { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    }
+    
+    /* 狀態顏色 */
+    .seat-occupied { background-color: #e5e7eb; color: #4b5563; border: 1px solid #9ca3af; cursor: not-allowed; }
+    .seat-selected { background-color: #2563eb; color: white; border: 1px solid #1d4ed8; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.4); }
+    
+    .seat-status-0 { background-color: #b7e1cd; color: #0f5132; border: 1px solid #34d399; } 
+    .seat-status-1 { background-color: #fce8b2; color: #b45309; border: 1px solid #fcd34d; } 
+    .seat-status-2 { background-color: #ea9999; color: #7f1d1d; border: 1px solid #fca5a5; } 
+    .seat-status-3 { background-color: #e06666; color: #ffffff; border: 1px solid #b91c1c; } 
+    .seat-status-4 { background-color: #cc0000; color: #ffffff; border: 1px solid #991b1b; } 
+    .seat-status-high { background-color: #660000; color: #ffffff; border: 1px solid #450a0a; } 
+
+    .stage-bar { background: #4b5563; color: #f9fafb; letter-spacing: 0.2em; border-radius: 4px 4px 8px 8px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center bg-white sm:bg-gray-100 p-0 sm:p-4">
+
+  <!-- 1. 登入頁面 (Login Page) -->
+  <div id="loginPage" class="w-full max-w-md bg-white p-8 rounded-2xl shadow-xl flex flex-col justify-center min-h-[60vh] mt-10">
+    <h1 class="text-3xl font-bold text-center mb-2 text-gray-800">學生登入</h1>
+    <p class="text-center text-gray-500 text-sm mb-8">請驗證身分以進行選位</p>
+    
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-bold text-gray-700 mb-1">座號</label>
+        <input type="number" id="loginSeatInput" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-lg" placeholder="例: 12">
+      </div>
+      <div>
+        <label class="block text-sm font-bold text-gray-700 mb-1">身分證字號 (或密碼)</label>
+        <input type="text" id="loginPassInput" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-lg" placeholder="輸入 F 欄的資料">
+      </div>
+      <button id="loginButton" class="w-full py-3 mt-4 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-all shadow-lg">登入系統</button>
+    </div>
+    <div id="loginMessage" class="mt-4 text-center text-red-500 text-sm font-bold"></div>
+  </div>
+
+  <!-- 2. 選位主頁面 (Main App) - 預設隱藏 -->
+  <div id="mainApp" class="hidden w-full max-w-xl bg-white p-4 sm:p-8 sm:rounded-2xl sm:shadow-xl flex flex-col min-h-screen sm:min-h-0">
+    <div class="mb-4 text-center mt-2 flex justify-between items-center px-2">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 tracking-tight">座位即時選位</h1>
+        <p class="text-gray-500 text-xs mt-1 text-left">你好，<span id="userNameDisplay" class="font-bold text-blue-600"></span> (座號:<span id="userSeatDisplay"></span>)</p>
+      </div>
+      <button onclick="logout()" class="text-xs text-gray-400 underline">登出</button>
+    </div>
+
+    <div id="loadingMessage" class="text-center text-blue-600 font-semibold py-20 animate-pulse text-sm flex-grow">正在載入座位表...</div>
+    <div id="errorMessage" class="hidden text-center text-red-600 font-semibold mb-4 bg-red-50 p-3 rounded-lg text-sm"></div>
+
+    <!-- 選位操作區 (已登入，所以不用輸入座號) -->
+    <div id="seatForm" class="space-y-3 sm:space-y-6 hidden mb-4">
+      <div class="flex flex-col items-center gap-2">
+        <label class="text-xs font-bold text-gray-700">您選擇的座位</label>
+        <input type="text" id="selectedSeatInput" placeholder="請點選下方座位" class="block w-full max-w-[200px] px-4 py-2 bg-blue-50 border-2 border-blue-100 rounded-lg text-center text-xl font-bold text-blue-700" readonly>
+      </div>
+
+      <button id="submitButton" class="w-full py-3.5 sm:py-3 px-4 border border-transparent rounded-xl shadow-sm text-lg font-bold text-white bg-gray-400 hover:bg-gray-500 focus:outline-none transition-all transform active:scale-98" disabled>
+        確認送出
+      </button>
+
+      <div id="statusMessage" class="hidden p-2 rounded-lg text-xs font-bold text-center transition-all"></div>
+    </div>
+
+    <div id="seatMapContainer" class="flex flex-col gap-1.5 sm:gap-3 items-center w-full pb-10 flex-grow justify-center"></div>
+  </div>
+
+<script>
+  // 全域變數
+  let currentUser = null; // {seatNo, name}
+  let seatData = {};
+  let currentSelectedSeat = null;
+
+  // DOM 元素
+  const loginPage = document.getElementById('loginPage');
+  const mainApp = document.getElementById('mainApp');
+  const loginButton = document.getElementById('loginButton');
+  const loginMessage = document.getElementById('loginMessage');
+  
+  const selectedSeatInput = document.getElementById('selectedSeatInput');
+  const submitButton = document.getElementById('submitButton');
+  const loadingMessage = document.getElementById('loadingMessage');
+  const seatMapContainer = document.getElementById('seatMapContainer');
+  const statusMessage = document.getElementById('statusMessage');
+
+  // --- 登入邏輯 ---
+  loginButton.addEventListener('click', () => {
+    const seat = document.getElementById('loginSeatInput').value;
+    const pass = document.getElementById('loginPassInput').value;
+    
+    if(!seat || !pass) {
+      loginMessage.textContent = "請輸入完整資訊";
+      return;
+    }
+    
+    loginButton.disabled = true;
+    loginButton.textContent = "驗證中...";
+    
+    google.script.run
+      .withSuccessHandler((res) => {
+        if(res.success) {
+          // 登入成功
+          currentUser = res.student;
+          showMainApp();
+        } else {
+          loginMessage.textContent = res.message;
+          loginButton.disabled = false;
+          loginButton.textContent = "登入系統";
+        }
+      })
+      .withFailureHandler((err) => {
+        loginMessage.textContent = "連線錯誤: " + err.message;
+        loginButton.disabled = false;
+        loginButton.textContent = "登入系統";
+      })
+      .loginStudent(seat, pass);
+  });
+
+  function showMainApp() {
+    loginPage.classList.add('hidden');
+    mainApp.classList.remove('hidden');
+    
+    // 顯示使用者資訊
+    document.getElementById('userNameDisplay').textContent = currentUser.name;
+    document.getElementById('userSeatDisplay').textContent = currentUser.seatNo;
+    
+    // 開始載入座位表
+    loadData();
+  }
+
+  function logout() {
+    currentUser = null;
+    location.reload(); // 重新整理頁面以登出
+  }
+
+  // --- 選位系統邏輯 ---
+
+  function showStatus(message, isSuccess) {
+    statusMessage.textContent = message;
+    statusMessage.classList.remove('hidden', 'bg-red-50', 'text-red-600', 'bg-green-50', 'text-green-600');
+    if (isSuccess) statusMessage.classList.add('bg-green-50', 'text-green-600');
+    else statusMessage.classList.add('bg-red-50', 'text-red-600');
+  }
+
+    // --- 追蹤本輪抽籤結果 ---
+  let resultPollingTimer = null;
+
+  function startResultPolling() {
+    if (resultPollingTimer) clearInterval(resultPollingTimer);
+    // 每 4 秒問一次結果
+    resultPollingTimer = setInterval(checkMyResult, 4000);
+  }
+
+  function stopResultPolling() {
+    if (resultPollingTimer) {
+      clearInterval(resultPollingTimer);
+      resultPollingTimer = null;
+    }
+  }
+
+  function checkMyResult() {
+    if (!currentUser) return;
+
+    google.script.run
+      .withSuccessHandler((res) => {
+        if (!res || !res.status) return;
+
+        if (res.status === 'PENDING') {
+          showStatus('⏳ 已送出選位意願，等待老師分配...', true);
+        } else if (res.status === 'SUCCESS') {
+          stopResultPolling();
+          const seatText = res.seat ? `（座位：${res.seat}）` : '';
+          showStatus(`🎉 本輪選位成功！${seatText}`, true);
+        } else if (res.status === 'FAIL') {
+          stopResultPolling();
+          showStatus('😢 本輪未選上座位，請等待下一輪。', false);
+        } else {
+          // NONE：還沒送出或老師還沒跑這輪
+        }
+      })
+      .withFailureHandler((err) => {
+        console.log('checkMyResult error:', err);
+      })
+      .getMyRoundResult(currentUser.seatNo);
+  }
+
+
+
+
+
+
+
+
+  function renderSeatMap() {
+    seatMapContainer.innerHTML = '';
+    
+    // 講台
+    const stageWrapper = document.createElement('div');
+    stageWrapper.className = 'w-full flex justify-center mb-1 sm:mb-4 px-2'; 
+    const stage = document.createElement('div');
+    stage.className = 'stage-bar w-full sm:w-3/4 py-1.5 text-center text-xs font-bold shadow-sm';
+    stage.textContent = '講台 (前方)';
+    stageWrapper.appendChild(stage);
+    seatMapContainer.appendChild(stageWrapper);
+    
+    // 座位排列 A1在右 (6->1)
+    const seatRows = [
+      ['A6', 'A5', 'A4', 'A3', 'A2', 'A1'], 
+      ['B6', 'B5', 'B4', 'B3', 'B2', 'B1'], 
+      ['C6', 'C5', 'C4', 'C3', 'C2', 'C1'], 
+      ['D6', 'D5', 'D4', 'D3', 'D2', 'D1'], 
+      ['E6', 'E5', 'E4', 'E3', 'E2', 'E1'], 
+      ['F5', 'F4', 'F3', 'F2', 'F1']        
+    ];
+
+    seatRows.forEach(row => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'flex justify-center gap-1.5 sm:gap-2 w-full px-1';
+      
+      row.forEach(seatName => {
+        const button = document.createElement('button');
+        button.className = 'seat-button'; 
+        const data = seatData[seatName] || { isOccupied: false, isAvailable: true, rawStatus: 0 };
+        
+        let statusText = '', className = 'seat-available';
+
+        if (data.isOccupied) {
+          className = 'seat-occupied';
+          statusText = `${data.occupantSeatId}`;
+          button.disabled = true;
+        } else if (!data.isAvailable) {
+          className = 'seat-occupied';
+          statusText = 'X';
+          button.disabled = true;
+        } else {
+          const count = typeof data.rawStatus === 'number' ? data.rawStatus : 0;
+          if (count === 0) { className = 'seat-status-0'; statusText = '可選'; }
+          else if (count === 1) { className = 'seat-status-1'; statusText = `${count}人`; }
+          else if (count === 2) { className = 'seat-status-2'; statusText = `${count}人`; }
+          else if (count === 3) { className = 'seat-status-3'; statusText = `${count}人`; }
+          else if (count === 4) { className = 'seat-status-4'; statusText = `${count}人`; }
+          else { className = 'seat-status-high'; statusText = `${count}人`; }
+          
+          button.onclick = (e) => { e.preventDefault(); selectSeat(seatName, button); };
+        }
+
+        button.innerHTML = `<span class="text-sm font-extrabold leading-none mb-0.5">${seatName}</span><span class="text-[10px] font-medium opacity-90 leading-none">${statusText}</span>`;
+        button.classList.add(className);
+        if (currentSelectedSeat === seatName) {
+          button.classList.remove(className); button.classList.add('seat-selected');
+        }
+        rowDiv.appendChild(button);
+      });
+      seatMapContainer.appendChild(rowDiv);
+    });
+    
+    document.getElementById('seatForm').classList.remove('hidden');
+    loadingMessage.classList.add('hidden');
+  }
+
+
+ 
+
+
+
+
+
+  function selectSeat(seatName, button) {
+    currentSelectedSeat = seatName;
+    selectedSeatInput.value = seatName;
+    renderSeatMap();
+    
+    // 啟用按鈕
+    submitButton.disabled = false;
+    submitButton.classList.remove('bg-gray-400', 'hover:bg-gray-500');
+    submitButton.classList.add('bg-blue-600', 'hover:bg-blue-700', 'shadow-lg');
+    submitButton.textContent = '確認提交';
+  }
+
+  function submitChoice() {
+    if (!currentUser || !currentSelectedSeat) return;
+
+    submitButton.disabled = true;
+    submitButton.textContent = '提交中...';
+    
+    google.script.run
+      .withSuccessHandler(handleSubmissionSuccess)
+      .withFailureHandler(handleSubmissionFailure)
+      .recordChoice({ seatId: currentUser.seatNo, choice: currentSelectedSeat }); // 使用登入者的座號
+  }
+
+    function handleSubmissionSuccess(response) {
+    if (response.success) {
+      showStatus(`✅ 成功送出選位意願！(座號 ${response.seatId}，選擇 ${response.choice})`, true);
+      loadData();
+      currentSelectedSeat = null; 
+      selectedSeatInput.value = ''; 
+      submitButton.disabled = true;
+      submitButton.classList.add('bg-gray-400', 'hover:bg-gray-500');
+      submitButton.textContent = '提交選位意願';
+
+      // 🆕 開始輪詢本輪抽籤結果
+      startResultPolling();
+
+    } else {
+      showStatus(`❌ 提交失敗: ${response.message}`, false);
+      submitButton.disabled = false;
+    }
+  }
+
+
+  function handleSubmissionFailure(error) {
+    showStatus(`❌ 系統錯誤：${error.message}`, false);
+    submitButton.disabled = false;
+  }
+
+  function loadData() {
+    // 輪詢：背景更新
+    google.script.run
+      .withSuccessHandler(handleDataSuccess)
+      .withFailureHandler((e) => console.log(e))
+      .getSeatMapData();
+  }
+
+  function handleDataSuccess(data) {
+    if (data && data.seatMap) {
+      seatData = data.seatMap;
+      renderSeatMap();
+      
+      // 每 5 秒輪詢
+      if (window.pollingTimer) clearTimeout(window.pollingTimer);
+      window.pollingTimer = setTimeout(loadData, 5000); 
+    }
+  }
+
+  submitButton.addEventListener('click', submitChoice);
+
+</script>
+</body>
+</html>

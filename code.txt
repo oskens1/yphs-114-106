@@ -1,0 +1,510 @@
+// =================================================================
+//                        全域設定與常數
+// =================================================================
+const FORM_RESPONSES_SHEET_NAME = '表單回應 1'; 
+const STUDENTS_SHEET_NAME = 'Students';
+const SEAT_VIEW_SHEET_NAME = 'Seat_View';
+const CHOICES_SHEET_NAME = 'Round_now_Choices';
+const LOTTERY_RESULT_SHEET_NAME = 'Lottery_Result';
+
+// =================================================================
+//                        Web App 介面函式
+// =================================================================
+
+/**
+ * Web App 入口點
+ */
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('座位即時選位系統')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+/**
+ * 🆕 新增函式：學生登入驗證
+ * @param {string} seatNo - 座號
+ * @param {string} password - 身分證字號 (或密碼)
+ */
+function loginStudent(seatNo, password) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const studentSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+    
+    if (!studentSheet) throw new Error('找不到學生名單');
+
+    // 讀取 A欄(座號), B欄(姓名), F欄(身分證/密碼)
+    // 範圍 A2:F
+    const lastRow = studentSheet.getLastRow();
+    const data = studentSheet.getRange('A2:F' + lastRow).getValues();
+    
+    // 搜尋匹配的學生
+    let foundStudent = null;
+    
+    for (let i = 0; i < data.length; i++) {
+      const rowSeat = String(data[i][0]).trim(); // A欄
+      const rowName = data[i][1];                // B欄
+      const rowPass = String(data[i][5]).trim(); // F欄 (索引 5)
+
+      // 比對座號與密碼 (不分大小寫)
+      if (rowSeat === String(seatNo).trim() && rowPass.toUpperCase() === String(password).trim().toUpperCase()) {
+        foundStudent = {
+          seatNo: rowSeat,
+          name: rowName
+        };
+        break;
+      }
+    }
+
+    if (foundStudent) {
+      return { success: true, student: foundStudent };
+    } else {
+      return { success: false, message: '座號或身分證字號錯誤' };
+    }
+
+  } catch (e) {
+    Logger.log("Login Error: " + e.message);
+    return { success: false, message: '系統錯誤，請稍後再試' };
+  }
+}
+
+/**
+ * 函數 1: 讀取座位圖數據
+ */
+function getSeatMapData() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const seatViewSheet = ss.getSheetByName(SEAT_VIEW_SHEET_NAME);
+    
+    if (!seatViewSheet) throw new Error(`找不到工作表: ${SEAT_VIEW_SHEET_NAME}`);
+
+    const range = seatViewSheet.getRange('B4:L20'); 
+    const rawData = range.getValues(); 
+    
+    const seatMap = {};
+
+    for (let i = 0; i < rawData.length; i += 3) {
+      if (i + 1 >= rawData.length) continue; 
+
+      const rowName = rawData[i];     
+      const rowStatus = rawData[i + 1]; 
+      
+      for (let j = 0; j < rowName.length; j++) {
+        const seatId = String(rowName[j]).trim();
+        const status = rowStatus[j]; 
+
+        if (seatId !== '' && seatId.toUpperCase() !== 'FALSE' && !seatId.includes('學年')) {
+          let isOccupied = false;
+          let occupantSeatId = null;
+          let isAvailable = true;
+
+          if (typeof status === 'number') {
+            isOccupied = false;
+            isAvailable = true; 
+          } else if (String(status).length > 0) {
+            isOccupied = true;
+            isAvailable = false;
+            occupantSeatId = String(status);
+          }
+
+          seatMap[seatId] = {
+            isOccupied: isOccupied,
+            isAvailable: isAvailable,
+            occupantSeatId: occupantSeatId,
+            rawStatus: status
+          };
+        }
+      }
+    }
+    return { seatMap: seatMap };
+  } catch (e) {
+    return { error: e.message };
+  }
+}
+
+/**
+ * 函數 2: 處理前端提交
+ */
+function recordChoice(formData) {
+  const { seatId, choice } = formData;
+  
+  if (!seatId || !choice) return { success: false, message: '資料不完整' };
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const responseSheet = ss.getSheetByName(FORM_RESPONSES_SHEET_NAME); 
+    const stuSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+    
+    if (!responseSheet) return { success: false, message: '找不到表單回應工作表' };
+    
+    const rowData = [
+      new Date(), 
+      seatId,     
+      choice,     
+      choice      
+    ];
+    responseSheet.appendRow(rowData);
+
+    // 🆕 清掉這位同學上一輪的結果（Students!G）
+    if (stuSheet) {
+      const lastRow = stuSheet.getLastRow();
+      if (lastRow >= 2) {
+        const range = stuSheet.getRange('A2:G' + lastRow);
+        const data = range.getValues();
+        const targetSeat = String(seatId).trim();
+        let changed = false;
+
+        for (let i = 0; i < data.length; i++) {
+          const sNo = String(data[i][0]).trim();
+          if (sNo === targetSeat) {
+            data[i][6] = '';   // G 欄清空
+            changed = true;
+            break;
+          }
+        }
+        if (changed) range.setValues(data);
+      }
+    }
+
+    return { success: true, seatId: seatId, choice: choice };
+  } catch (e) {
+    return { success: false, message: `後端錯誤：${e.message}` };
+  }
+}
+
+// =================================================================
+//                 積分分配核心邏輯
+// =================================================================
+
+function getStudentScores() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+  const data = sheet.getRange('A2:E' + sheet.getLastRow()).getValues();
+  const map = {};
+  data.forEach(row => {
+    const seatNo = Number(row[0]);
+    const score = Number(row[4]); 
+    if (seatNo) map[seatNo] = (typeof score === 'number') ? score : 0;
+  });
+  return map;
+}
+
+function determineWinner(contenders) {
+  // 1. 先把每個人的「權重」抓出來（用 score 當權重）
+  let totalWeight = 0;
+  const weights = [];
+
+  for (let i = 0; i < contenders.length; i++) {
+    const c = contenders[i];
+    // 確保是數字，且不要小於 0
+    let w = Number(c.score);
+    if (isNaN(w) || w < 0) w = 0;
+    weights.push(w);
+    totalWeight += w;
+  }
+
+  // 2. 如果全部人權重都 0（例如都沒分數），就改成「機會均等隨機」
+  if (totalWeight <= 0) {
+    const randomIndex = Math.floor(Math.random() * contenders.length);
+    return contenders[randomIndex].seatNo;
+  }
+
+  // 3. 做一個 0 ~ totalWeight 的隨機數，依序扣掉每個人的權重
+  //    掉到哪個區間就是誰中獎（典型 weighted random 法）
+  let r = Math.random() * totalWeight;
+
+  for (let i = 0; i < contenders.length; i++) {
+    r -= weights[i];
+    if (r <= 0) {
+      return contenders[i].seatNo;  // 這個人中
+    }
+  }
+
+  // 理論上不會到這裡，但保險起見
+  return contenders[contenders.length - 1].seatNo;
+}
+
+function updateStudentsFinalSeat(winnerMap) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+    const dataRange = sheet.getRange('A2:D' + sheet.getLastRow());
+    const data = dataRange.getValues();
+    
+    for (let i = 0; i < data.length; i++) {
+        const seatNo = Number(data[i][0]);
+        if (winnerMap[seatNo]) {
+            sheet.getRange(2 + i, 4).setValue(winnerMap[seatNo]); 
+        }
+    }
+}
+
+function allocateSeatsByScore() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const choicesSheet = ss.getSheetByName(CHOICES_SHEET_NAME); 
+  const lotteryResultSheet = ss.getSheetByName(LOTTERY_RESULT_SHEET_NAME);
+
+  const scoreMap = getStudentScores();
+
+  // ① 讀取本輪選位資料
+  const lastRow = choicesSheet.getLastRow();
+  if (lastRow <= 1) {
+     ss.toast('本輪尚無選位資料');
+     return { success: true };
+  }
+
+  const choiceData = choicesSheet.getRange('A2:C' + lastRow).getValues();
+
+  // ② 找出有參加的人
+  const participants = new Set();
+  choiceData.forEach(row => {
+    const seatNo = Number(row[0]);
+    if (seatNo) participants.add(seatNo);
+  });
+
+  const stuSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+  if (!stuSheet) {
+    ss.toast('找不到學生名單工作表');
+    return { success: false, message: '找不到學生名單工作表' };
+  }
+
+  const stuLastRow = stuSheet.getLastRow();
+  let stuData = [];
+  let seatRowIndex = {};  // 座號 → 在 stuData 的 index
+
+  if (stuLastRow >= 2) {
+    // 🆕 這裡改成 A2:G，一併把 G 欄讀進來
+    const stuRange = stuSheet.getRange('A2:G' + stuLastRow);
+    stuData = stuRange.getValues();
+
+    for (let i = 0; i < stuData.length; i++) {
+      const sNo = Number(stuData[i][0]); // A 欄：座號
+      if (sNo) {
+        seatRowIndex[sNo] = i;
+      }
+      // 如果有參加本輪 → 先清掉原本的最終座位（D）與結果（G）
+      if (participants.has(sNo)) {
+        stuData[i][3] = '';        // D 欄：最終座位
+        stuData[i][6] = 'PENDING'; // G 欄：先標記等待分配
+      }
+    }
+
+    // 先不要 setValues，等結果全部算完再一次寫回去
+  }
+
+  // ③ 建立 choiceMap：每個座位 → 參加競爭的學生列表
+  const choiceMap = {};
+  choiceData.forEach(row => {
+    const seatNo = Number(row[0]);
+    const seatId = String(row[2]).trim().toUpperCase(); 
+    const score = scoreMap[seatNo] !== undefined ? scoreMap[seatNo] : 0; 
+
+    if (!seatNo || !seatId) return;
+
+    if (!choiceMap[seatId]) choiceMap[seatId] = [];
+    choiceMap[seatId].push({ seatNo, score });
+  });
+  
+  let allocations = 0;
+  const winnerMap = {}; 
+  const winners = []; 
+  
+  // ④ 對每個座位做加權抽籤
+  for (const seatId in choiceMap) {
+    const contenders = choiceMap[seatId];
+    if (contenders.length > 0) {
+      const winnerSeatNo = determineWinner(contenders);
+      
+      allocations++;
+      winnerMap[winnerSeatNo] = seatId;
+      
+      const method = (contenders.length > 1) ? '競爭勝出' : '直接分配';
+      winners.push([winnerSeatNo, seatId, method, new Date()]);
+    }
+  }
+
+  // 🆕 ④-2 在 stuData 內寫入 SUCCESS / FAIL
+  participants.forEach(seatNo => {
+    const idx = seatRowIndex[seatNo];
+    if (idx === undefined) return;
+    if (winnerMap[seatNo]) {
+      stuData[idx][3] = winnerMap[seatNo]; // D：最終座位
+      stuData[idx][6] = 'SUCCESS';         // G：本輪成功
+    } else {
+      // 沒中籤
+      stuData[idx][6] = 'FAIL';
+    }
+  });
+
+  // 把 Students 全部更新回去
+  if (stuLastRow >= 2) {
+    const stuRange = stuSheet.getRange('A2:G' + stuLastRow);
+    stuRange.setValues(stuData);
+  }
+
+  // 原本記錄抽籤結果的程式照用
+  if (lotteryResultSheet && winners.length > 0) {
+     const nextRow = lotteryResultSheet.getLastRow() + 1;
+     lotteryResultSheet.getRange(nextRow, 1, winners.length, 4).setValues(winners);
+  }
+
+  ss.toast(`✅ 分配完成：${allocations} 人獲選。`);
+  return { success: true };
+}
+
+// =================================================================
+//                 管理與重置流程
+// =================================================================
+
+function initNextRound() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const formSheet = ss.getSheetByName(FORM_RESPONSES_SHEET_NAME);
+  if (formSheet && formSheet.getLastRow() > 1) {
+    formSheet.getRange(2, 1, formSheet.getLastRow() - 1, formSheet.getLastColumn()).clearContent();
+  }
+  ss.toast('✅ 已初始化下一輪');
+}
+
+function finishRoundAndInitNext() {
+  SpreadsheetApp.getActiveSpreadsheet().toast('🔄 執行分配中...');
+  try {
+    allocateSeatsByScore(); 
+    initNextRound();        
+  } catch (e) {
+    Browser.msgBox('錯誤', e.message, Browser.Buttons.OK);
+  }
+}
+
+function resetSeatMission() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const stuSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+  const formSheet = ss.getSheetByName(FORM_RESPONSES_SHEET_NAME);
+  const lotterySheet = ss.getSheetByName(LOTTERY_RESULT_SHEET_NAME);
+
+  if (stuSheet) stuSheet.getRange('D2:D').clearContent();
+  if (formSheet && formSheet.getLastRow() > 1) formSheet.getRange(2, 1, formSheet.getLastRow()-1, formSheet.getLastColumn()).clearContent();
+  if (lotterySheet && lotterySheet.getLastRow() > 1) lotterySheet.getRange(2, 1, lotterySheet.getLastRow()-1, lotterySheet.getLastColumn()).clearContent();
+
+  ss.toast('✅ 系統已重置');
+}
+
+function randomSimulateChoices() {
+  const ss = SpreadsheetApp.getActive();
+  const formSheet = ss.getSheetByName(FORM_RESPONSES_SHEET_NAME);
+  const stuSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+
+  if (!formSheet || !stuSheet) {
+    ss.toast('錯誤：找不到必要的工作表');
+    Logger.log('❌ 找不到工作表');
+    return;
+  }
+
+  const lastRow = stuSheet.getLastRow();
+  if (lastRow < 2) {
+    ss.toast('錯誤：學生名單為空');
+    Logger.log('❌ 學生名單為空');
+    return;
+  }
+
+  // 1. 抓 A、D 欄：座號 + 最終座位
+  const dataRange = stuSheet.getRange(2, 1, lastRow - 1, 4); // A:D
+  const data = dataRange.getValues();
+
+  // 所有合法座位（依你的實際教室改）
+  const allValidSeats = [
+    'A1','A2','B1','B2','C1','C2','D1','D2','E1','E2','F1','F2',
+    'A3','A4','A5','A6','B3','B4','B5','B6',
+    'C3','C4','C5','C6','D3','D4','D5','D6',
+    'E3','E4','E5','E6','F3','F4','F5'
+  ];
+
+  const takenSeats = new Set();   // D 欄已經有人坐
+  const unassignedStudents = [];  // D 欄空白的學生座號
+
+  data.forEach(row => {
+    const seatNo = String(row[0]).trim();                // A 欄：座號
+    const finalSeat = String(row[3]).trim().toUpperCase(); // D 欄：最終座位
+
+    if (!seatNo) return;
+
+    if (finalSeat && finalSeat !== 'UNDEFINED') {
+      takenSeats.add(finalSeat);
+    } else {
+      unassignedStudents.push(seatNo);
+    }
+  });
+
+  Logger.log('👨‍🎓 未排位學生：%s 人 → %s',
+             unassignedStudents.length,
+             unassignedStudents.join(', '));
+  Logger.log('🚫 已佔用座位：%s → %s',
+             takenSeats.size,
+             Array.from(takenSeats).join(', '));
+
+  // 2. 剩餘「可選座位池」= 還沒分給任何人的
+  const availableSeats = allValidSeats.filter(seat => !takenSeats.has(seat));
+  Logger.log('💺 剩餘可選座位 (%s)：%s',
+             availableSeats.length,
+             availableSeats.join(', '));
+
+  if (unassignedStudents.length === 0) {
+    ss.toast('所有學生都已經有座位');
+    return;
+  }
+  if (availableSeats.length === 0) {
+    ss.toast('已無剩餘空位可以抽（連重複抽都沒東西可抽）');
+    return;
+  }
+
+  // 3. 幫所有還沒座位的學生「各抽一次」
+  const newRows = [];
+
+  // 打亂學生順序（可有可無，純隨機感）
+  const shuffledStudents = [...unassignedStudents].sort(() => Math.random() - 0.5);
+
+  shuffledStudents.forEach((seatNo, idx) => {
+    const randomSeatIndex = Math.floor(Math.random() * availableSeats.length);
+    const choice = availableSeats[randomSeatIndex];   // ✅ 從空位池中抽，但不刪掉 → 允許重複
+
+    Logger.log('✅ 模擬第 %s 筆：座號 %s 抽到 %s', idx + 1, seatNo, choice);
+
+    newRows.push([new Date(), seatNo, choice]);
+    // ❌ 不再 splice，座位留在池子裡
+  });
+
+  // 4. 寫回「表單回應」
+  if (newRows.length > 0) {
+    const startRow = formSheet.getLastRow() + 1;
+    formSheet.getRange(startRow, 1, newRows.length, 3).setValues(newRows);
+    ss.toast(`已為 ${newRows.length} 位未排位同學，各模擬抽了一個候選座位（可重複）`);
+    Logger.log('📥 寫入表單回應 %s 筆（起始列 %s）', newRows.length, startRow);
+  } else {
+    ss.toast('沒有產生任何模擬資料');
+    Logger.log('ℹ 沒有產生任何模擬資料');
+  }
+}
+
+function getMyRoundResult(seatNo) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const stuSheet = ss.getSheetByName(STUDENTS_SHEET_NAME);
+  if (!stuSheet) return { status: 'NONE' };
+
+  const lastRow = stuSheet.getLastRow();
+  if (lastRow < 2) return { status: 'NONE' };
+
+  const data = stuSheet.getRange('A2:G' + lastRow).getValues();
+  const target = String(seatNo).trim();
+
+  for (let i = 0; i < data.length; i++) {
+    const sNo = String(data[i][0]).trim();
+    if (sNo === target) {
+      const result = String(data[i][6] || '').toUpperCase(); // G欄
+      const finalSeat = data[i][3] || ''; // D欄：最終座位
+
+      if (result === 'SUCCESS') return { status: 'SUCCESS', seat: finalSeat };
+      if (result === 'FAIL')    return { status: 'FAIL' };
+      if (result === 'PENDING') return { status: 'PENDING' };
+      return { status: 'NONE' };
+    }
+  }
+  return { status: 'NONE' };
+}

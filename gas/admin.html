@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>老師管理後台 - 座位選位系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- QR Code Library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
+    body { font-family: 'Noto Sans TC', sans-serif; background-color: #f1f5f9; }
+    .seat-box {
+      width: 70px; height: 70px; display: flex; flex-direction: column;
+      justify-content: center; align-items: center; border-radius: 8px;
+      border: 1px solid #cbd5e1; background: white; font-size: 12px;
+    }
+    .occupied { background-color: #fce8b2; border-color: #fcd34d; } 
+    .available { background-color: #b7e1cd; border-color: #34d399; } 
+    .conflict { background-color: #ea9999 !important; border-color: #fca5a5 !important; color: #7f1d1d !important; } 
+    .status-badge { font-size: 10px; padding: 1px 4px; border-radius: 4px; margin-top: 2px; }
+  </style>
+</head>
+<body class="p-4">
+
+  <div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-6">
+    
+    <!-- 左側：座位投影區 -->
+    <div class="flex-grow bg-white p-6 rounded-2xl shadow-lg">
+      <div class="text-center mb-6">
+        <h1 class="text-3xl font-bold text-gray-800">106 班級座位表 (即時動態)</h1>
+        <div class="bg-gray-800 text-white py-2 px-10 rounded-lg inline-block mt-4 font-bold">講台 (前方)</div>
+      </div>
+
+      <div id="seatMap" class="flex flex-col gap-4 items-center overflow-auto">
+        <!-- 座位地圖由 JS 產生 -->
+        <div class="animate-pulse py-20 text-gray-400 text-lg">正在讀取雲端座位資料...</div>
+      </div>
+    </div>
+
+    <!-- 右側：控制面板 -->
+    <div class="w-full lg:w-80 flex flex-col gap-6">
+      
+      <!-- 狀態與 QR Code -->
+      <div class="bg-white p-6 rounded-2xl shadow-md text-center">
+        <h2 class="text-lg font-bold mb-4">學生端入口</h2>
+        <div id="qrcode" class="flex justify-center mb-4"></div>
+        <p class="text-xs text-gray-500 break-all mb-2" id="urlText"></p>
+        <div id="statusIndicator" class="py-2 px-4 rounded-full text-sm font-bold bg-gray-100 text-gray-400">
+          讀取狀態中...
+        </div>
+      </div>
+
+      <!-- 操作按鈕 -->
+      <div class="bg-white p-6 rounded-2xl shadow-md flex flex-col gap-3">
+        <h2 class="text-lg font-bold mb-2">管理操作</h2>
+        
+        <div class="flex gap-2">
+          <button onclick="toggleSystem(true)" class="flex-1 py-2 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition shadow-md active:scale-95 text-sm">🚀 開放</button>
+          <button onclick="toggleSystem(false)" class="flex-1 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition shadow-md active:scale-95 text-sm">🔒 鎖定</button>
+        </div>
+
+        <button onclick="autoFillChoices()" class="w-full py-3 bg-yellow-500 text-white rounded-xl font-bold hover:bg-yellow-600 transition shadow-md active:scale-95">
+          🪄 補全未選位者 (隨機)
+        </button>
+
+        <button onclick="runLottery()" class="w-full py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition shadow-md active:scale-95">
+          🎲 執行加權抽籤
+        </button>
+
+        <hr class="my-2">
+
+        <button onclick="showArchiveModal()" class="w-full py-3 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition shadow-md active:scale-95">
+          💾 僅執行存檔
+        </button>
+
+        <button onclick="handleReset()" class="w-full py-2 bg-gray-400 text-white rounded-xl font-bold hover:bg-gray-500 transition shadow-md active:scale-95 text-xs">
+          🧹 僅重置系統 (清空)
+        </button>
+      </div>
+
+      <div class="text-[10px] text-gray-300 text-center">
+        永久性選位系統 v2.0 | Cline AI 整合版
+      </div>
+    </div>
+  </div>
+
+  <!-- 存檔 Modal -->
+  <div id="archiveModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+    <div class="bg-white p-6 rounded-2xl w-full max-w-sm">
+      <h3 class="text-xl font-bold mb-4">存檔本輪結果</h3>
+      <input type="text" id="roundNameInput" placeholder="輸入輪次名稱 (例: 開學第一次)" class="w-full border p-3 rounded-lg mb-4">
+      <div class="flex gap-2">
+        <button onclick="closeArchiveModal()" class="flex-1 py-2 bg-gray-200 rounded-lg font-bold">取消</button>
+        <button onclick="confirmArchive()" class="flex-1 py-2 bg-purple-600 text-white rounded-lg font-bold">確認存檔</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentWebAppUrl = '';
+
+    window.onload = () => {
+      loadSystemStatus();
+      loadSeatMap();
+      setInterval(loadSeatMap, 5000); 
+    };
+
+    function loadSystemStatus() {
+      google.script.run.withSuccessHandler(res => {
+        currentWebAppUrl = res.webAppUrl;
+        document.getElementById('urlText').innerText = currentWebAppUrl;
+        document.getElementById('qrcode').innerHTML = "";
+        new QRCode(document.getElementById("qrcode"), { text: currentWebAppUrl, width: 160, height: 160 });
+        updateStatusUI(res.isOpen);
+      }).getSystemStatus();
+    }
+
+    function updateStatusUI(isOpen) {
+      const indicator = document.getElementById('statusIndicator');
+      if (isOpen) {
+        indicator.innerText = "🟢 選位開放中";
+        indicator.className = "py-2 px-4 rounded-full text-sm font-bold bg-green-100 text-green-700 animate-pulse";
+      } else {
+        indicator.innerText = "🔴 選位已鎖定";
+        indicator.className = "py-2 px-4 rounded-full text-sm font-bold bg-red-100 text-red-700";
+      }
+    }
+
+    function toggleSystem(isOpen) {
+      google.script.run.withSuccessHandler(res => {
+        updateStatusUI(res.isOpen);
+        alert(res.isOpen ? "已開放學生選位！" : "已鎖定系統。");
+      }).setSystemStatus(isOpen);
+    }
+
+    function loadSeatMap() {
+      google.script.run.withSuccessHandler(res => {
+        if (res.error) return;
+        renderMap(res.seatMap);
+      }).getSeatMapData();
+    }
+
+    function renderMap(seatMap) {
+      const container = document.getElementById('seatMap');
+      container.innerHTML = '';
+      const seatRows = [
+        ['A6', 'A5', 'A4', 'A3', 'A2', 'A1'], ['B6', 'B5', 'B4', 'B3', 'B2', 'B1'], 
+        ['C6', 'C5', 'C4', 'C3', 'C2', 'C1'], ['D6', 'D5', 'D4', 'D3', 'D2', 'D1'], 
+        ['E6', 'E5', 'E4', 'E3', 'E2', 'E1'], ['F5', 'F4', 'F3', 'F2', 'F1']        
+      ];
+      seatRows.forEach(row => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = "flex gap-3 justify-center w-full";
+        row.forEach(id => {
+          const data = seatMap[id] || { isOccupied: false, rawStatus: 0 };
+          const div = document.createElement('div');
+          const count = data.rawStatus || 0;
+          let bgClass = data.isOccupied ? 'occupied' : 'available';
+          if (!data.isOccupied && count >= 2) bgClass = 'conflict'; 
+          div.className = `seat-box ${bgClass}`;
+          let content = `<span class="font-bold ${count >= 2 && !data.isOccupied ? 'text-red-900' : 'text-gray-400'} text-[10px]">${id}</span>`;
+          if (data.isOccupied) {
+            content += `<span class="text-lg font-bold text-amber-900">${data.occupantSeatId}</span>`;
+            content += `<span class="status-badge bg-amber-200 text-amber-900 font-bold">已佔用</span>`;
+          } else {
+            content += `<span class="text-lg font-bold ${count >= 2 ? 'text-red-900' : 'text-green-800'}">${count} 人</span>`;
+            content += `<span class="status-badge ${count >= 2 ? 'bg-red-200 text-red-800' : 'bg-green-200 text-green-800'} font-bold">競爭中</span>`;
+          }
+          div.innerHTML = content;
+          rowDiv.appendChild(div);
+        });
+        container.appendChild(rowDiv);
+      });
+    }
+
+    function runLottery() {
+      if (!confirm("確定要執行加權抽籤嗎？這會更新學生的最終座位。")) return;
+      google.script.run.withSuccessHandler(res => {
+        alert("抽籤完成！共有 " + res.count + " 人獲選座位。");
+        loadSeatMap();
+      }).allocateSeatsByScore();
+    }
+
+    function autoFillChoices() {
+      if (!confirm("確定要幫所有尚未選位的同學隨機填入志願嗎？\n(包含上一輪未中籤者)")) return;
+      google.script.run.withSuccessHandler(res => {
+        alert(res.message);
+        loadSeatMap();
+      }).simulateMissingChoices();
+    }
+
+    function showArchiveModal() { document.getElementById('archiveModal').classList.remove('hidden'); }
+    function closeArchiveModal() { document.getElementById('archiveModal').classList.add('hidden'); }
+
+    function confirmArchive() {
+      const name = document.getElementById('roundNameInput').value;
+      if (!name) return alert("請輸入輪次名稱");
+      google.script.run.withSuccessHandler(res => {
+        alert(res.message);
+        closeArchiveModal();
+      }).archiveOnly(name);
+    }
+
+    function handleReset() {
+      if (!confirm("⚠️ 警告：確定要清空目前所有人的座位與狀態嗎？\n(請確保您已經執行過存檔)")) return;
+      if (!confirm("最後確認：此操作不可還原！真的要重置嗎？")) return;
+      google.script.run.withSuccessHandler(res => {
+        alert(res.message);
+        location.reload();
+      }).resetSystem();
+    }
+  </script>
+</body>
+</html>

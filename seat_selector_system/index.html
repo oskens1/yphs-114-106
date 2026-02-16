@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+    
+    .seat-button {
+      width: 58px; height: 58px; font-size: 12px;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      border-radius: 8px; cursor: pointer; transition: all 0.1s ease; font-weight: 700;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.05); -webkit-tap-highlight-color: transparent; user-select: none;
+    }
+    .seat-button:active { transform: scale(0.92); } 
+    .seat-occupied { background-color: #e5e7eb; color: #4b5563; border: 1px solid #9ca3af; cursor: not-allowed; }
+    .seat-selected { background-color: #2563eb; color: white; border: 1px solid #1d4ed8; box-shadow: 0 2px 4px rgba(37, 99, 235, 0.4); }
+    .seat-status-0 { background-color: #b7e1cd; color: #0f5132; border: 1px solid #34d399; } 
+    .seat-status-high { background-color: #ea9999; color: #7f1d1d; border: 1px solid #fca5a5; } 
+    .stage-bar { background: #4b5563; color: #f9fafb; letter-spacing: 0.2em; border-radius: 4px 4px 8px 8px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-0 sm:p-4 bg-white">
+
+  <!-- 狀態檢查覆蓋層 -->
+  <div id="closedOverlay" class="hidden fixed inset-0 bg-gray-900 bg-opacity-95 z-50 flex flex-col items-center justify-center p-6 text-center">
+    <div class="text-64 text-6xl mb-4">🔒</div>
+    <h2 class="text-2xl font-bold text-white mb-2">選位系統目前已鎖定</h2>
+    <p class="text-gray-400">請等待老師在黑板上開啟選位功能後再試。</p>
+    <button onclick="location.reload()" class="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg font-bold">重新整理</button>
+  </div>
+
+  <!-- 1. 登入頁面 -->
+  <div id="loginPage" class="w-full max-w-md p-8 flex flex-col justify-center min-h-[60vh] mt-10">
+    <h1 class="text-3xl font-bold text-center mb-2 text-gray-800">106 學生登入</h1>
+    <p class="text-center text-gray-500 text-sm mb-8">請掃描黑板 QR Code 進入</p>
+    
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-bold text-gray-700 mb-1">座號</label>
+        <input type="number" id="loginSeatInput" class="block w-full px-4 py-3 border rounded-lg text-lg" placeholder="例: 12">
+      </div>
+      <div>
+        <label class="block text-sm font-bold text-gray-700 mb-1">身分證後四碼 (密碼)</label>
+        <input type="text" id="loginPassInput" class="block w-full px-4 py-3 border rounded-lg text-lg">
+      </div>
+      <button id="loginButton" class="w-full py-3 bg-blue-600 text-white font-bold rounded-lg shadow-lg">登入</button>
+    </div>
+    <div id="loginMessage" class="mt-4 text-center text-red-500 font-bold"></div>
+  </div>
+
+  <!-- 2. 選位主頁面 -->
+  <div id="mainApp" class="hidden w-full max-w-xl p-4 flex flex-col min-h-screen">
+    <div class="mb-4 flex justify-between items-center px-2">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">座位選位系統</h1>
+        <p class="text-gray-500 text-xs font-bold"><span id="userNameDisplay" class="text-blue-600"></span> (座號:<span id="userSeatDisplay"></span>)</p>
+      </div>
+      <button onclick="logout()" class="text-xs text-gray-400 underline">登出</button>
+    </div>
+
+    <div id="seatForm" class="space-y-4 mb-4">
+      <div class="flex flex-col items-center gap-2">
+        <label class="text-xs font-bold text-gray-700">您選擇的座位</label>
+        <input type="text" id="selectedSeatInput" placeholder="點選下方方格" class="block w-full max-w-[200px] px-4 py-2 bg-blue-50 border-2 border-blue-100 rounded-lg text-center text-xl font-bold text-blue-700" readonly>
+      </div>
+      <button id="submitButton" class="w-full py-3.5 rounded-xl shadow-sm text-lg font-bold text-white bg-gray-400" disabled>確認送出</button>
+      <div id="statusMessage" class="hidden p-2 rounded-lg text-xs font-bold text-center"></div>
+    </div>
+
+    <div id="seatMapContainer" class="flex flex-col gap-2 items-center w-full pb-10"></div>
+  </div>
+
+<script>
+  let currentUser = null;
+  let seatData = {};
+  let currentSelectedSeat = null;
+  let pollingTimer = null;
+
+  // 檢查系統狀態
+  function checkSystemOpen() {
+    google.script.run.withSuccessHandler(res => {
+      if (!res.isOpen) {
+        document.getElementById('closedOverlay').classList.remove('hidden');
+      } else {
+        document.getElementById('closedOverlay').classList.add('hidden');
+      }
+    }).getSystemStatus();
+  }
+
+  window.onload = () => {
+    checkSystemOpen();
+    setInterval(checkSystemOpen, 10000); // 10秒檢查一次是否被老師鎖定
+  };
+
+  document.getElementById('loginButton').onclick = () => {
+    const seat = document.getElementById('loginSeatInput').value;
+    const pass = document.getElementById('loginPassInput').value;
+    google.script.run.withSuccessHandler(res => {
+      if(res.success) {
+        currentUser = res.student;
+        document.getElementById('loginPage').classList.add('hidden');
+        document.getElementById('mainApp').classList.remove('hidden');
+        document.getElementById('userNameDisplay').innerText = currentUser.name;
+        document.getElementById('userSeatDisplay').innerText = currentUser.seatNo;
+        loadData();
+      } else {
+        document.getElementById('loginMessage').innerText = res.message;
+      }
+    }).loginStudent(seat, pass);
+  };
+
+  function loadData() {
+    google.script.run.withSuccessHandler(res => {
+      seatData = res.seatMap;
+      renderMap();
+      if (!pollingTimer) pollingTimer = setInterval(loadData, 5000);
+    }).getSeatMapData();
+  }
+
+  function renderMap() {
+    const container = document.getElementById('seatMapContainer');
+    container.innerHTML = '<div class="stage-bar w-3/4 py-1 text-center text-xs font-bold mb-4">講台</div>';
+    
+    const rows = [
+      ['A6', 'A5', 'A4', 'A3', 'A2', 'A1'], ['B6', 'B5', 'B4', 'B3', 'B2', 'B1'],
+      ['C6', 'C5', 'C4', 'C3', 'C2', 'C1'], ['D6', 'D5', 'D4', 'D3', 'D2', 'D1'],
+      ['E6', 'E5', 'E4', 'E3', 'E2', 'E1'], ['F5', 'F4', 'F3', 'F2', 'F1']
+    ];
+
+    rows.forEach(row => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'flex gap-2 mb-2';
+      row.forEach(id => {
+        const data = seatData[id] || { isOccupied: false, rawStatus: 0 };
+        const btn = document.createElement('button');
+        btn.className = 'seat-button';
+        
+        if (data.isOccupied) {
+          btn.classList.add('seat-occupied');
+          btn.innerHTML = `<span>${id}</span><span class="text-[9px]">${data.occupantSeatId}</span>`;
+          btn.disabled = true;
+        } else {
+          const count = data.rawStatus || 0;
+          btn.classList.add(count > 0 ? 'seat-status-high' : 'seat-status-0');
+          btn.innerHTML = `<span>${id}</span><span class="text-[9px]">${count}人</span>`;
+          if (currentSelectedSeat === id) btn.classList.add('seat-selected');
+          btn.onclick = () => {
+            currentSelectedSeat = id;
+            document.getElementById('selectedSeatInput').value = id;
+            document.getElementById('submitButton').disabled = false;
+            document.getElementById('submitButton').className = "w-full py-3.5 rounded-xl text-lg font-bold text-white bg-blue-600";
+            renderMap();
+          };
+        }
+        rowDiv.appendChild(btn);
+      });
+      container.appendChild(rowDiv);
+    });
+  }
+
+  document.getElementById('submitButton').onclick = () => {
+    document.getElementById('submitButton').disabled = true;
+    google.script.run.withSuccessHandler(res => {
+      if (res.success) {
+        showStatus('✅ 提交成功，請等候抽籤結果...', true);
+        startPollingResult();
+      } else {
+        showStatus('❌ ' + res.message, false);
+        document.getElementById('submitButton').disabled = false;
+      }
+    }).recordChoice({ seatId: currentUser.seatNo, choice: currentSelectedSeat });
+  };
+
+  function startPollingResult() {
+    setInterval(() => {
+      google.script.run.withSuccessHandler(res => {
+        if (res.status === 'SUCCESS') showStatus('🎉 恭喜！獲選座位：' + res.seat, true);
+        else if (res.status === 'FAIL') showStatus('😢 本輪未抽中，請等候下一輪。', false);
+      }).getMyRoundResult(currentUser.seatNo);
+    }, 4000);
+  }
+
+  function showStatus(msg, ok) {
+    const el = document.getElementById('statusMessage');
+    el.innerText = msg;
+    el.className = `p-2 rounded-lg text-xs font-bold text-center ${ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`;
+    el.classList.remove('hidden');
+  }
+
+  function logout() { location.reload(); }
+</script>
+</body>
+</html>

@@ -1,0 +1,225 @@
+// ==========================================
+// 設定區
+// ==========================================
+const SHEET_STUDENT = "StudentData";
+const SHEET_LOGS = "PointLogs";
+const SHEET_AUCTIONS = "Auctions";
+const SHEET_ADMIN = "Admin";
+const SHEET_BIDS = "BidLogs";
+
+function doGet(e) {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('班級積分銀行')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// 老師端：批次加分 (維持不變)
+function processBulkAdd() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const adminSheet = ss.getSheetByName(SHEET_ADMIN);
+  const logSheet = ss.getSheetByName(SHEET_LOGS);
+  const studentSheet = ss.getSheetByName(SHEET_STUDENT);
+  
+  const reason = adminSheet.getRange("B2").getValue();
+  const score = adminSheet.getRange("D2").getValue();
+  
+  if (reason === "" || score === "") { ui.alert("錯誤：請輸入事由與分數"); return; }
+  
+  const lastRow = adminSheet.getLastRow();
+  if (lastRow < 6) return;
+  
+  const range = adminSheet.getRange(6, 1, lastRow - 5, 3);
+  const values = range.getValues();
+  
+  const timestamp = new Date();
+  let processCount = 0;
+  let newLogs = [];
+  let scoreMap = {};
+
+  values.forEach((row, index) => {
+    if (row[0] === true || row[0] === "true") {
+      processCount++;
+      newLogs.push([timestamp, row[1], row[2], reason, score]);
+      scoreMap[row[1]] = score;
+      values[index][0] = false;
+    }
+  });
+  
+  if (processCount === 0) { ui.alert("未勾選任何學生"); return; }
+  
+  if (newLogs.length > 0) logSheet.getRange(logSheet.getLastRow() + 1, 1, newLogs.length, 5).setValues(newLogs);
+  updateStudentScores(studentSheet, scoreMap);
+  range.setValues(values);
+  ui.alert(`完成！已幫 ${processCount} 位同學執行操作。`);
+}
+
+function updateStudentScores(sheet, scoreMap) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return;
+  const range = sheet.getRange(2, 1, lastRow - 1, 5);
+  const data = range.getValues();
+  let isUpdated = false;
+  for (let i = 0; i < data.length; i++) {
+    const seat = data[i][1];
+    if (scoreMap[seat] !== undefined) {
+      const current = data[i][4] === "" ? 0 : data[i][4];
+      data[i][4] = Number(current) + Number(scoreMap[seat]);
+      isUpdated = true;
+    }
+  }
+  if (isUpdated) range.setValues(data);
+}
+
+// 學生端：登入 (維持不變)
+function studentLogin(seat, password) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_STUDENT);
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][1]) === String(seat) && String(data[i][3]) === String(password)) {
+      return { success: true, name: data[i][2], score: data[i][4], seat: data[i][1] };
+    }
+  }
+  return { success: false, message: "座號或密碼錯誤" };
+}
+
+// 學生端：獲取紀錄 (維持不變)
+function getStudentLogs(seat) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_LOGS);
+  if (sheet.getLastRow() < 2) return [];
+  const data = sheet.getRange(2, 1, sheet.getLastRow()-1, 5).getValues();
+  return data.filter(row => String(row[1]) === String(seat)).map(row => ({
+    time: formatDate(row[0]), reason: row[3], score: row[4]
+  })).reverse();
+}
+
+// 學生端：獲取競標商品 (有修改：需回傳目前最高價)
+function getActiveAuctions() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_AUCTIONS);
+  if (sheet.getLastRow() < 2) return [];
+  
+  // 讀取到 H 欄 (A~H)
+  const data = sheet.getRange(2, 1, sheet.getLastRow()-1, 8).getValues();
+  const now = new Date();
+  
+  // 欄位: A=ID, B=Name, C=Img, D=StartPrice, E=Deadline, F=Status, G=CurrentPrice, H=Leader
+  return data.filter(row => row[5] === "進行中" && new Date(row[4]) > now).map(row => {
+    // 如果目前最高價(G)是空的，就顯示起標價(D)
+    const currentPrice = (row[6] === "" || row[6] === null) ? row[3] : row[6];
+    return {
+      id: row[0],
+      name: row[1],
+      img: row[2],
+      startPrice: row[3],
+      currentPrice: currentPrice, // 這是重點
+      leader: row[7] ? row[7] : "尚無", // 目前贏家
+      deadline: formatDate(row[4]),
+      desc: row[6] // 注意：若你欄位位移，說明欄位可能跑到 I，請確認你的表格結構，這裡假設說明在 G 之後
+    };
+  });
+}
+
+// 學生端：出價 (大幅修改：公開競標邏輯 + 鎖定機制)
+// 學生端：出價 (改良版：加入詳細錯誤捕捉與防卡死)
+// 學生端：出價 (最終強化版：加入「凍結預算」檢查，防止破產)
+function submitBid(seat, name, auctionId, auctionName, bidPrice) {
+  const lock = LockService.getScriptLock();
+  
+  try {
+    lock.waitLock(5000); 
+  } catch (e) {
+    return { success: false, message: "系統忙碌中，請再試一次" };
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const auctionSheet = ss.getSheetByName(SHEET_AUCTIONS);
+    const studentSheet = ss.getSheetByName(SHEET_STUDENT);
+    const bidSheet = ss.getSheetByName(SHEET_BIDS);
+
+    if (!auctionSheet || !studentSheet || !bidSheet) throw new Error("資料庫分頁讀取失敗");
+
+    // 1. 取得所有商品資料
+    const auctions = auctionSheet.getDataRange().getValues();
+    
+    // 2. 找出「目標商品」的資料 & 計算該學生「在其他商品的凍結資金」
+    let targetRowIndex = -1;
+    let targetCurrentMax = 0;
+    let lockedScore = 0; // 凍結資金
+
+    // 從第1列(標題後)開始掃描
+    for(let i=1; i<auctions.length; i++){
+      const rowId = String(auctions[i][0]);       // A欄 ID
+      const rowStatus = auctions[i][5];           // F欄 狀態
+      const rowPrice = Number(auctions[i][6] || auctions[i][3]); // G欄 目前價 (若無則取 D欄 起標)
+      const rowLeader = String(auctions[i][7]);   // H欄 領先者姓名
+
+      // 如果是「目標商品」
+      if(rowId === String(auctionId)){
+        targetRowIndex = i + 1;
+        targetCurrentMax = rowPrice;
+      }
+      
+      // 如果是「其他」正在進行中的商品，且領先者是這位同學 -> 累加凍結資金
+      // 注意：rowId != auctionId 代表「不包含現在正要標的這一個」(因為如果是自己加碼，只要付差額，或是視為重新出價)
+      if(rowStatus === "進行中" && rowLeader === String(name) && rowId !== String(auctionId)) {
+        lockedScore += rowPrice;
+      }
+    }
+
+    if(targetRowIndex === -1) return {success: false, message: "找不到該商品，可能已下架"};
+
+    // 3. 檢查出價是否高於目前價格
+    if (Number(bidPrice) <= Number(targetCurrentMax)) {
+      return {success: false, message: `出價失敗！慢了一步，目前最高價已經是 ${targetCurrentMax} 了`};
+    }
+
+    // 4. 檢查「真實可用餘額」
+    const students = studentSheet.getDataRange().getValues();
+    let totalScore = 0;
+    let foundStudent = false;
+    
+    for(let i=1; i<students.length; i++){
+      if(String(students[i][1]) === String(seat)){
+         totalScore = Number(students[i][4]);
+         foundStudent = true;
+         break;
+      }
+    }
+    
+    if (!foundStudent) throw new Error("找不到學生資料");
+
+    // 計算可用餘額
+    const availableScore = totalScore - lockedScore;
+
+    if (Number(bidPrice) > availableScore) {
+      return {
+        success: false, 
+        message: `積分不足！\n你的總分: ${totalScore}\n其他競標保留款: ${lockedScore}\n剩餘可用: ${availableScore}\n(你需要 ${bidPrice})`
+      };
+    }
+
+    // 5. 寫入出價
+    auctionSheet.getRange(targetRowIndex, 7).setValue(bidPrice);
+    auctionSheet.getRange(targetRowIndex, 8).setValue(name); 
+    bidSheet.appendRow([new Date(), auctionId, auctionName, seat, name, bidPrice]);
+
+    return {success: true, message: "🎉 出價成功！你是目前的最高出價者！"};
+
+  } catch (error) {
+    return { success: false, message: "系統錯誤: " + error.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+function formatDate(dateObj) {
+  if (!dateObj) return "";
+  const d = new Date(dateObj);
+  return (d.getMonth()+1) + "/" + d.getDate() + " " + d.getHours() + ":" + (d.getMinutes()<10?'0':'') + d.getMinutes();
+}
