@@ -1,56 +1,44 @@
-# 學生積分銀行整合專案 - 工作日誌 (2026/02/15)
+# 學生積分銀行整合專案 - 工作日誌 (2026/02/16)
 
 ## 專案目標
-整合「校務行政系統爬蟲」與「Google Sheets 積分銀行」，實現每週自動化打卡發分（1次打卡=5分）。
+實現 Vercel 與 Google Apps Script (GAS) 的前後端分離架構，整合積分系統、競標功能與座位選位系統於單一入口。
 
-## 已完成工作 (截至 12:20 PM)
+## 已完成工作 (截至 04:20 PM)
 1. **目錄結構優化**：
    - 將檔案分類為 `scrapers/`, `gas/`, `data/`, `utils/`。
-   - 正式命名：`test.py` -> `attendance_scraper.py`。
    
 2. **爬蟲效能優化 (智慧銜接模式)**：
-   - 修正了原本會重複掃描舊日期的問題。
-   - **現有機制**：爬蟲往回找日期時，只要撞到 Excel 中已有的分頁，立即停止抓取，實現秒速同步。
+   - 往回找日期時，只要撞到 Excel 中已有的分頁，立即停止抓取，實現秒速同步。
 
 3. **點數計算核心 (`utils/point_calculator.py`)**：
-   - 支援解析多種座號格式 (10601, 1號, 1)。
-   - 支援「日期區間過濾」，預設自動鎖定「上週一到週五」。
+   - 支援解析多種座號格式，支援日期區間過濾。
 
 4. **雲端 API 部署 (`gas/`)**：
-   - 已透過 `clasp` 部署優化後的 GAS 程式碼。
-   - 新增 `apiUpdateAttendancePoints` 介面，支援 Python 批次傳輸加分清單與事由。
-   - 自動在 `PointLogs` 分頁寫入紀錄。
+   - 已透過 `clasp` 整合並部署優化後的 GAS 程式碼。
+   - 支援 Python 本地發分與 Vercel 遠端呼叫。
 
 5. **使用者介面與環境**：
-   - 建立了 `一鍵啟動積分系統.bat` (已修復 UTF-8 亂碼與環境路徑)。
-   - 打包了具備圖示的 `106積分銀行一鍵發分.exe` (位於 `dist/`)。
    - **Vercel 雲端入口**: https://yphs-114-106.vercel.app/ (學生端唯一入口)。
    - **手機端優化**: 已加入 viewport meta 標籤，確保行動裝置瀏覽舒適度。
+   - **系統搬家通知**: GAS 端已加入 `target="_top"` 重定向連結。
 
 6. **自動化開發流程 (Clasp + GitHub Integration)**：
-   - **GAS 自動同步**: 已設定 Clasp 工具。Cline 可直接在終端機執行 `clasp push` 修改雲端 Code，使用者僅需負責在 GAS 頁面按「部署」。
-   - **Vercel 自動同步**: 前端 `index.html` 修改後，執行 `git push` 即自動發布至 Vercel。
-   - **跨網域解決方案**: 全面採用 **JSONP** 模式，繞過 Google 的 iframe 安全限制與 CORS 問題。
->>>>+++ REPLACE
+   - **GAS 自動同步**: 已設定 Clasp 工具。Cline 可直接執行 `clasp push` 修改雲端 Code。
+   - **Vercel 自動同步**: 前端 `index.html` 修改後，執行 `git push` 即自動發布。
+   - **跨網域解決方案**: 全面採用 **JSONP** 模式。
 
+## 關鍵檔案定義 (Source of Truth)
+- **`real-index.txt`**: 積分銀行的「真值來源」HTML。包含所有最重要的**規則說明、凍結公式與文字內容**。Cline 修改 `index.html` 前必須參考此檔，確保文字細節不丟失。
+- **`real-code.txt`**: 積分銀行的「真值來源」GAS 邏輯。包含登入、出價與紀錄讀取的後端核心代碼。
 
 ## 待接續工作 / 測試
-- [ ] **歷史資料測試**：建議回家後用桌機執行 `.bat`，選 `n` (不抓資料) -> `y` (手動區間) -> 輸入 `114-12-21`，核對預覽名單後按 `y` 測試雲端同步。
-- [ ] **新學期正式啟動**：2/23 開學後，每週五執行一次即可。
+- [ ] **座位系統介面整合**: 目前後端 API 已通，需在 Vercel 介面加入座位選位分頁。
+- [ ] **新學期正式啟動**: 2/23 開學後開始運作。
 
 ## 開發者提示
-- **Python 環境**：需安裝 `DrissionPage`, `pandas`, `requests`, `openpyxl`。
-- **Web App URL**：已填入 `main.py` 第 10 行，無須更動。
-- **Vercel 入口**：https://yphs-114-106.vercel.app/ (由 GitHub 倉庫自動部署)。
-- **GAS 推播 (Clasp)**：
-   1. 確保已安裝 Node.js 並執行 `npm install -g @google/clasp`。
-   2. 執行 `clasp login` 完成 Google 帳號授權。
-   3. 修改本地 `real-code.txt` 或 `gas/code.gs` 後，執行 `clasp push`。
-   4. **重要**：push 完後需進入 GAS 後端執行「管理部署 > 新增版本」才算正式生效。
-- **跨網域通訊 (CORS)**：
-   由於網頁改在 Vercel，原本的 `google.script.run` 失效，已全面改用 **JSONP** 呼叫方式。修改代碼時請確保 GAS 端能處理 `action` 與 `callback` 參數。
->>>>+++ REPLACE
-
+- **Vercel 入口**：https://yphs-114-106.vercel.app/
+- **GAS 推播 (Clasp)**：修改代碼後執行 `clasp push`，完成後需手動進入 GAS 執行「管理部署 > 新增版本」。
+- **跨網域通訊**：必須確保 GAS 端能處理 `action` 與 `callback` 參數以支援 JSONP。
 
 ---
 * Cline AI 代理人 敬上
