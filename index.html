@@ -71,19 +71,39 @@
     <div id="tab-rules" style="display: none;">
       <div class="rule-box">
         <div class="rule-title">💰 積分怎麼來？</div>
-        <p class="text-muted small mt-2 mb-0">老師會根據大家的表現（如：作業繳交、打掃認真、課堂表現等）進行加扣分。你的總分代表你目前擁有的所有資產。</p>
+        <p class="text-muted small mt-2 mb-0">
+          老師會根據大家的表現（如：作業繳交、打掃認真、課堂表現等）進行加扣分。你的總分代表你目前擁有的所有資產。
+        </p>
       </div>
+
       <div class="rule-box">
         <div class="rule-title">🔨 競標規則 (起手無回)</div>
-        <p class="text-muted small mt-2 mb-0">1. 競標採「公開出價」，你必須出比目前最高價更高的分數。<br>2. 一旦出價成功，不可撤銷！請看清楚再按。<br>3. 截止時間到，由最高出價者得標。</p>
+        <p class="text-muted small mt-2 mb-0">
+          1. 競標採<strong>「公開出價」</strong>，你必須出比目前最高價更高的分數。<br>
+          2. <strong>一旦出價成功，不可撤銷！</strong>請看清楚再按。<br>
+          3. 截止時間到，由最高出價者得標。
+        </p>
       </div>
+
       <div class="rule-box" style="border-left-color: #d9534f;">
         <div class="rule-title">❄️ 為什麼我不能出價？(凍結規則)</div>
-        <p class="text-muted small mt-2 mb-0">為了防止破產，系統會計算你的「可用餘額」。<br><br><strong>公式：總積分 - 其他領先商品的金額 = 可用餘額</strong><br><br>例：你有 100 分。你目前正在領先「飲料(40分)」。那你只剩下 60 分可以去標別的東西。</p>
+        <p class="text-muted small mt-2 mb-0">
+          為了防止破產，系統會計算你的<strong>「可用餘額」</strong>。<br>
+          <br>
+          <strong>公式：總積分 - 其他領先商品的金額 = 可用餘額</strong><br>
+          <br>
+          <em>舉例：你有 100 分。你目前正在領先「飲料(40分)」。<br>
+          那你只剩下 60 分可以去標別的東西。<br>
+          如果你想標的東西要 70 分，系統就會顯示積分不足。</em>
+        </p>
       </div>
+
       <div class="rule-box">
         <div class="rule-title">📦 得標後怎麼扣分？</div>
-        <p class="text-muted small mt-2 mb-0">競標當下系統不會立刻扣分（只會凍結額度）。直到活動截止，老師確認得標名單後，會手動從後台統一扣除分數，並發放獎品。</p>
+        <p class="text-muted small mt-2 mb-0">
+          競標當下系統<strong>不會</strong>立刻扣分（只會凍結額度）。<br>
+          直到活動截止，老師確認得標名單後，會手動從後台統一扣除分數，並發放獎品。
+        </p>
       </div>
       <div class="text-center text-muted small mt-4">© 2025 班級積分銀行系統</div>
     </div>
@@ -96,9 +116,8 @@
 
   function callGas(action, params, callback) {
     let url = `${GAS_URL}?action=${action}`;
-    if (typeof callback === 'string') {
-      url += `&callback=${callback}`;
-    } else if (typeof callback === 'function') {
+    if (typeof callback === 'string') { url += `&callback=${callback}`; } 
+    else if (typeof callback === 'function') {
       const tempName = 'cb_' + Math.floor(Math.random() * 1000000);
       window[tempName] = function(res) { callback(res); delete window[tempName]; };
       url += `&callback=${tempName}`;
@@ -150,7 +169,7 @@
       items.forEach(item => {
         const imgHtml = item.img ? `<img src="${item.img}" class="card-img-top auction-img">` : '';
         const suggestPrice = Number(item.currentPrice) + 1;
-        list.innerHTML += `<div class="col-12 col-md-6"><div class="card h-100 shadow-sm border-primary">${imgHtml}<div class="card-body"><h5 class="card-title">${item.name}</h5><div class="alert alert-light border text-center my-2"><small class="text-muted">目前最高價</small><br><span class="price-tag">${item.currentPrice}</span> 分<br><small class="badge bg-info text-dark">${item.leader}</small></div><div class="d-flex justify-content-between"><small>起標: ${item.startPrice}</small><small class="text-danger">截止: ${item.deadline}</small></div><hr><div class="input-group"><input type="number" class="form-control" value="${suggestPrice}" id="bid-${item.id}"><button class="btn btn-primary" onclick="placeBid('${item.id}', '${item.name}')">出價</button></div></div></div></div>`;
+        list.innerHTML += `<div class="col-12 col-md-6"><div class="card h-100 shadow-sm border-primary">${imgHtml}<div class="card-body"><h5 class="card-title">${item.name}</h5><div class="alert alert-light border text-center my-2"><small class="text-muted">目前最高價</small><br><span class="price-tag">${item.currentPrice}</span> 分<br><small class="badge bg-info text-dark">${item.leader}</small></div><hr><div class="input-group"><input type="number" class="form-control" value="${suggestPrice}" id="bid-${item.id}"><button class="btn btn-primary" onclick="placeBid('${item.id}', '${item.name}')">出價</button></div></div></div></div>`;
       });
     });
   }
