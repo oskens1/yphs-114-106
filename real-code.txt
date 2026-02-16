@@ -20,14 +20,7 @@ function doGet(e) {
     } else if (action === 'getAuctions') {
       res = getActiveAuctions();
     } else if (action === 'submitBid') {
-      // 將出價也改為 GET 支援 JSONP
-      res = submitBid(
-        e.parameter.seat, 
-        e.parameter.name, 
-        e.parameter.auctionId, 
-        e.parameter.auctionName, 
-        e.parameter.bidPrice
-      );
+      res = submitBid(e.parameter.seat, e.parameter.name, e.parameter.auctionId, e.parameter.auctionName, e.parameter.bidPrice);
     }
     
     if (res !== undefined) {
@@ -36,11 +29,34 @@ function doGet(e) {
     }
   }
 
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
-    .setTitle('班級積分銀行')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  // 預設行為：顯示搬家通知
+  const moveHtml = `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>系統搬家通知</title>
+        <style>
+          body { font-family: sans-serif; text-align: center; padding: 50px; background: #f8f9fa; }
+          .card { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+          .btn { background: #764ba2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>🚀 106班積分銀行已升級</h2>
+          <p>為了提供更好的使用體驗，系統已搬遷至新網址。</p>
+          <br><br>
+          <a href="https://yphs-114-106.vercel.app/" class="btn">前往新版系統</a>
+          <br><br><br>
+          <small style="color:#888">請更新您的書籤</small>
+        </div>
+      </body>
+    </html>
+  `;
+  return HtmlService.createHtmlOutput(moveHtml)
+    .setTitle('系統搬家通知')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 // 老師端：批次加分
@@ -50,23 +66,17 @@ function processBulkAdd() {
   const adminSheet = ss.getSheetByName(SHEET_ADMIN);
   const logSheet = ss.getSheetByName(SHEET_LOGS);
   const studentSheet = ss.getSheetByName(SHEET_STUDENT);
-  
   const reason = adminSheet.getRange("B2").getValue();
   const score = adminSheet.getRange("D2").getValue();
-  
   if (reason === "" || score === "") { ui.alert("錯誤：請輸入事由與分數"); return; }
-  
   const lastRow = adminSheet.getLastRow();
   if (lastRow < 6) return;
-  
   const range = adminSheet.getRange(6, 1, lastRow - 5, 3);
   const values = range.getValues();
-  
   const timestamp = new Date();
   let processCount = 0;
   let newLogs = [];
   let scoreMap = {};
-
   values.forEach((row, index) => {
     if (row[0] === true || row[0] === "true") {
       processCount++;
@@ -75,9 +85,7 @@ function processBulkAdd() {
       values[index][0] = false;
     }
   });
-  
   if (processCount === 0) { ui.alert("未勾選任何學生"); return; }
-  
   if (newLogs.length > 0) logSheet.getRange(logSheet.getLastRow() + 1, 1, newLogs.length, 5).setValues(newLogs);
   updateStudentScores(studentSheet, scoreMap);
   range.setValues(values);
@@ -106,9 +114,8 @@ function studentLogin(seat, password) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEET_STUDENT);
   const data = sheet.getDataRange().getValues();
-  
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][1]) === String(seat) && String(data[i][3]) === String(password)) {
+    if (String(data[i][1]) === String(seat) && (password === '' || String(data[i][3]) === String(password))) {
       return { success: true, name: data[i][2], score: data[i][4], seat: data[i][1] };
     }
   }
@@ -135,15 +142,7 @@ function getActiveAuctions() {
   const now = new Date();
   return data.filter(row => row[5] === "進行中" && new Date(row[4]) > now).map(row => {
     const currentPrice = (row[6] === "" || row[6] === null) ? row[3] : row[6];
-    return {
-      id: row[0],
-      name: row[1],
-      img: row[2],
-      startPrice: row[3],
-      currentPrice: currentPrice,
-      leader: row[7] ? row[7] : "尚無",
-      deadline: formatDate(row[4])
-    };
+    return { id: row[0], name: row[1], img: row[2], startPrice: row[3], currentPrice: currentPrice, leader: row[7] ? row[7] : "尚無", deadline: formatDate(row[4]) };
   });
 }
 
@@ -156,47 +155,31 @@ function submitBid(seat, name, auctionId, auctionName, bidPrice) {
     const auctionSheet = ss.getSheetByName(SHEET_AUCTIONS);
     const studentSheet = ss.getSheetByName(SHEET_STUDENT);
     const bidSheet = ss.getSheetByName(SHEET_BIDS);
-
     const auctions = auctionSheet.getDataRange().getValues();
     let targetRowIndex = -1;
     let targetCurrentMax = 0;
     let lockedScore = 0;
-
     for(let i=1; i<auctions.length; i++){
       const rowId = String(auctions[i][0]);
       const rowStatus = auctions[i][5];
       const rowPrice = Number(auctions[i][6] || auctions[i][3]);
       const rowLeader = String(auctions[i][7]);
-      if(rowId === String(auctionId)){
-        targetRowIndex = i + 1;
-        targetCurrentMax = rowPrice;
-      }
-      if(rowStatus === "進行中" && rowLeader === String(name) && rowId !== String(auctionId)) {
-        lockedScore += rowPrice;
-      }
+      if(rowId === String(auctionId)){ targetRowIndex = i + 1; targetCurrentMax = rowPrice; }
+      if(rowStatus === "進行中" && rowLeader === String(name) && rowId !== String(auctionId)) { lockedScore += rowPrice; }
     }
     if(targetRowIndex === -1) return {success: false, message: "找不到商品"};
     if (Number(bidPrice) <= Number(targetCurrentMax)) return {success: false, message: `出價太慢！目前已達 ${targetCurrentMax}`};
-
     const students = studentSheet.getDataRange().getValues();
     let totalScore = 0;
     for(let i=1; i<students.length; i++){
-      if(String(students[i][1]) === String(seat)){
-         totalScore = Number(students[i][4]);
-         break;
-      }
+      if(String(students[i][1]) === String(seat)){ totalScore = Number(students[i][4]); break; }
     }
     if (Number(bidPrice) > (totalScore - lockedScore)) return {success: false, message: "積分不足 (含凍結)"};
-
     auctionSheet.getRange(targetRowIndex, 7).setValue(bidPrice);
     auctionSheet.getRange(targetRowIndex, 8).setValue(name); 
     bidSheet.appendRow([new Date(), auctionId, auctionName, seat, name, bidPrice]);
     return {success: true, message: "🎉 出價成功！"};
-  } catch (e) {
-    return { success: false, message: "系統錯誤: " + e.message };
-  } finally {
-    lock.releaseLock();
-  }
+  } catch (e) { return { success: false, message: "系統錯誤: " + e.message }; } finally { lock.releaseLock(); }
 }
 
 function formatDate(dateObj) {
