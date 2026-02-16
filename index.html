@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <title>班級積分銀行</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background-color: #f8f9fa; font-family: "Microsoft JhengHei", sans-serif; }
+    .card-score { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+    .nav-pills .nav-link.active { background-color: #764ba2; }
+    .nav-pills .nav-link { color: #764ba2; }
+    .loading { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; }
+    .auction-img { height: 150px; object-fit: cover; width: 100%; }
+    .price-tag { color: #d9534f; font-weight: bold; font-size: 1.2em; }
+    .rule-box { background: #fff; border-left: 5px solid #764ba2; padding: 15px; margin-bottom: 15px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .rule-title { font-weight: bold; color: #333; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="container py-4" style="max-width: 600px;">
+  
+  <div id="loading" class="loading">
+    <div class="spinner-border text-primary" role="status"></div>
+  </div>
+
+  <div id="login-page" class="card shadow p-4">
+    <h3 class="text-center mb-4">🔐 106班積分銀行登入</h3>
+    <div class="mb-3">
+      <label class="form-label">座號</label>
+      <input type="number" id="login-seat" class="form-control" placeholder="輸入座號">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">密碼</label>
+      <input type="password" id="login-pwd" class="form-control" placeholder="輸入密碼">
+    </div>
+    <button onclick="doLogin()" class="btn btn-primary w-100">登入</button>
+    <div class="text-center mt-4">
+      <img src="https://meee.com.tw/wmJKWSV.jpg" class="img-fluid" style="max-width: 100%; border-radius: 10px;">
+    </div>
+  </div>
+
+  <div id="main-page" style="display: none;">
+    <div class="card card-score shadow mb-3">
+      <div class="card-body text-center">
+        <h5 class="card-title"><span id="user-name">同學</span> 您好</h5>
+        <p class="card-text small">總積分</p>
+        <h1 class="display-4 fw-bold" id="user-score">0</h1>
+        <button onclick="logout()" class="btn btn-sm btn-outline-light mt-2">登出</button>
+      </div>
+    </div>
+
+    <ul class="nav nav-pills nav-fill mb-3">
+      <li class="nav-item"><button class="nav-link active" onclick="switchTab('logs')">📜 加扣紀錄</button></li>
+      <li class="nav-item"><button class="nav-link" onclick="switchTab('auction')">🎁 競標會場</button></li>
+      <li class="nav-item"><button class="nav-link" onclick="switchTab('rules')">ℹ️ 使用說明</button></li>
+    </ul>
+
+    <div id="tab-logs">
+      <div class="list-group" id="logs-list"></div>
+    </div>
+
+    <div id="tab-auction" style="display: none;">
+      <div class="d-flex justify-content-end mb-2">
+        <button class="btn btn-sm btn-outline-secondary">🔄 刷新價格</button>
+      </div>
+      <div class="row g-3" id="auction-list"></div>
+    </div>
+
+    <div id="tab-rules" style="display: none;">
+      <div class="rule-box">
+        <div class="rule-title">💰 積分怎麼來？</div>
+        <p class="text-muted small mt-2 mb-0">老師會根據大家的表現進行加扣分。</p>
+      </div>
+      <div class="rule-box">
+        <div class="rule-title">🔨 競標規則</div>
+        <p class="text-muted small mt-2 mb-0">採公開出價，一旦出價不可撤銷。</p>
+      </div>
+      <div class="text-center text-muted small mt-4">© 2025 班級積分銀行系統</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function doLogin() {
+    alert("提醒：由於 Google Apps Script 的安全限制，純前端網頁（如 Vercel）無法直接與 GAS 後端溝通。\n\n請直接使用老師提供的 Google 連結（Web App URL）來使用完整功能。此 Vercel 頁面僅供展示用途。");
+  }
+  function logout() { location.reload(); }
+  function switchTab(tab) {
+    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-logs').style.display = 'none';
+    document.getElementById('tab-auction').style.display = 'none';
+    document.getElementById('tab-rules').style.display = 'none';
+    if(tab === 'logs') document.getElementById('tab-logs').style.display = 'block';
+    else if(tab === 'auction') document.getElementById('tab-auction').style.display = 'block';
+    else if(tab === 'rules') document.getElementById('tab-rules').style.display = 'block';
+  }
+</script>
+</body>
+</html>
