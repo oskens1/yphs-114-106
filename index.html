@@ -12,7 +12,8 @@
     .nav-pills .nav-link.active { background-color: #764ba2; }
     .nav-pills .nav-link { color: #764ba2; }
     .loading { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.8); z-index: 9999; justify-content: center; align-items: center; }
-    .auction-img { height: 150px; object-fit: cover; width: 100%; }
+    /* 已調整為 1:1 正方形比例 */
+    .auction-img { aspect-ratio: 1 / 1; object-fit: cover; width: 100%; }
     .price-tag { color: #d9534f; font-weight: bold; font-size: 1.2em; }
     .rule-box { background: #fff; border-left: 5px solid #764ba2; padding: 15px; margin-bottom: 15px; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     .rule-title { font-weight: bold; color: #333; font-size: 1.1em; display: flex; align-items: center; gap: 8px; }
@@ -38,7 +39,6 @@
     </div>
     <button onclick="doLogin()" class="btn btn-primary w-100">登入</button>
     <div class="text-center mt-4">
-      <!-- 已經替換為新的圖片網址 -->
       <img src="https://files.catbox.moe/ftdvas.png" class="img-fluid" style="max-width: 100%; border-radius: 10px;">
     </div>
   </div>
@@ -178,7 +178,7 @@
 
   function placeBid(id, name) {
     const amount = document.getElementById('bid-'+id).value;
-    if(!amount || amount <= 0) { alert("請輸入有效分數"); return; }
+    if(!amount || amount <= 0) { alert("請輸入分數"); return; }
     if(!confirm(`確定要出價 ${amount} 分嗎？`)) return;
     showLoading(true);
     callGas('submitBid', { seat: currentUser.seat, name: currentUser.name, auctionId: id, auctionName: name, bidPrice: amount }, function(res){
